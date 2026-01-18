@@ -1,0 +1,36 @@
+{
+  "name": "trendinnovation-getbaitoru-performance-data",
+  "version": "1.0.0",
+  "description": "スプレッドシートから検索キーを取得し、Puppeteerで検索して結果をCSV出力・集計するツール",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "clean": "rimraf dist",
+    "prebuild": "npm run clean"
+  },
+  "keywords": [
+    "puppeteer",
+    "scraping",
+    "spreadsheet",
+    "csv"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "puppeteer": "^21.6.1",
+    "googleapis": "^129.0.0",
+    "xlsx": "^0.18.5",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0",
+    "csv-writer": "^1.6.0",
+    "csv-parser": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2",
+    "rimraf": "^5.0.5"
+  }
+}
