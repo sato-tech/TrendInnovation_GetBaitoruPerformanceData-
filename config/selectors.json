@@ -1,0 +1,48 @@
+{
+  "login": {
+    "usernameInput": "input[name=\"username\"]",
+    "passwordInput": "input[name=\"password\"]",
+    "loginButton": "button[type=\"submit\"]",
+    "topPageButton": ".top-link"
+  },
+  "search": {
+    "companyIdInput": "input#f_comp_id",
+    "searchButton": "input.btn-search[type=\"submit\"]",
+    "selectButton": "input.btn-success.btn-swide[type=\"submit\"][value=\"選択\"]"
+  },
+  "menu": {
+    "publicationMenu": "a[href*=\"publication\"]",
+    "performanceMenu": "a[href*=\"publication/result\"]",
+    "jobMenu": "a[href*=\"job\"]",
+    "jobMenuXPath": "//a[contains(text(), '原稿')]",
+    "jobSearchMenu": "a[href*=\"job?mode=1\"]",
+    "jobSearchMenuXPath": "//a[contains(text(), '原稿検索')] | //a[contains(@href, 'job?mode=1')]"
+  },
+  "performance": {
+    "performanceLink": "a[href*='performance']",
+    "startDateInput": "input[name='f_pub_st_date']",
+    "endDateInput": "input[name='f_pub_ed_date']",
+    "downloadButton": "#bb-term-download-submit"
+  },
+  "jobSearch": {
+    "jobNoInput": "input[name='f_job_id']",
+    "searchButton": "input.btn-search[type='submit'], input[value='検索']",
+    "previewButton": "a.btn-preview, button#btn-preview",
+    "firstPreviewButton": "a.btn-preview"
+  },
+  "preview": {
+    "workLocationXPath": "//td[contains(text(), '勤務地')]/following-sibling::td[1]//div[@class='ws-pre-line']",
+    "jobListPreview": "#list-preview-frame, iframe[data-preview-type='list']",
+    "jobListPreviewXPath": "//label[contains(text(), '仕事一覧プレビュー')]",
+    "salaryXPath": "//td[contains(text(), '給与') or contains(text(), '時給') or contains(text(), '日給') or contains(text(), '月給')]/following-sibling::td[1]",
+    "salaryInIframeSelector": "body > div > article > div > div.bg01 > div > div.pt03 > dl:nth-child(2) > dd > ul > li",
+    "jobTypeXPath": "//td[contains(text(), '募集1')]/following-sibling::td[1]//span",
+    "jobTypeInIframeSelector": "body > div > article > div > div.bg01 > div > div.pt03 > dl:nth-child(1) > dd > ul > li",
+    "prefectureInIframeXPath": "//*[contains(text(), '都') or contains(text(), '道') or contains(text(), '府') or contains(text(), '県')][1]",
+    "workLocationFallbackSelector": "body > div > article > div > div.bg01 > div > div.pt12 > div.pt12b > dl:nth-child(3) > dd > ul > li",
+    "cityInIframeXPath": "//*[contains(text(), '区') or contains(text(), '市') or contains(text(), '町') or contains(text(), '村')][1]",
+    "stationInIframeXPath": "//*[contains(text(), '駅')][1]",
+    "stationXPath": "//td[contains(text(), '勤務地')]/following-sibling::td[1]//div[@class='ws-pre-line']",
+    "storeNameXPath": "//div[contains(text(), '応募受付先名')]"
+  }
+}
