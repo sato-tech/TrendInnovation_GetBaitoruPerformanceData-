@@ -5,6 +5,13 @@ package-lock.json
 # 環境変数
 .env
 
+# 認証情報ファイル
+credentials.json
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
 # ログファイル
 logs/
 *.log
