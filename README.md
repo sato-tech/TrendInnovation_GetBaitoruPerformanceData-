@@ -48,7 +48,136 @@
 
 ## 🚀 セットアップ
 
-### 1. 依存関係のインストール
+### Gitから取得した後の初回セットアップ
+
+このプロジェクトをGitから取得した後、以下の手順でセットアップを行ってください。
+
+#### ステップ1: リポジトリのクローン（まだの場合）
+
+```bash
+git clone <リポジトリURL>
+cd TrendInnovation_GetBaitoruPerformanceData-
+```
+
+#### ステップ2: 依存関係のインストール
+
+```bash
+npm install
+```
+
+**注意**: 
+- 権限エラーが発生する場合は、ターミナルで直接実行してください
+- 初回実行時は時間がかかる場合があります（依存パッケージのダウンロード）
+
+#### ステップ3: Puppeteerのブラウザをインストール
+
+```bash
+npm run install-browser
+```
+
+または
+
+```bash
+npx puppeteer browsers install chrome
+```
+
+**注意**: この手順により、Puppeteerが使用するChromeブラウザが自動的にインストールされます。これにより、`.env`ファイルでブラウザパスを指定する必要がなくなります。
+
+#### ステップ4: 環境変数の設定
+
+`.env`ファイルを作成して、必要な設定を行います。
+
+**Windowsの場合（推奨）:**
+1. エクスプローラーでプロジェクトフォルダを開く
+2. `setup-env.bat`をダブルクリックして実行
+3. 完了メッセージが表示されるまで待つ
+
+**macOS/Linuxの場合:**
+```bash
+chmod +x setup-env.sh
+./setup-env.sh
+```
+
+**手動で作成する場合:**
+プロジェクトルートに`.env`ファイルを作成し、以下の内容を記述してください：
+
+```env
+# バイトル企業データ ログイン情報（実際の値に置き換えてください）
+BAITORU_LOGIN_URL=https://agent.baitoru.com/top
+BAITORU_USERNAME=your_username
+BAITORU_PASSWORD=your_password
+
+# ファイルパス設定
+INPUT_FILE=【バイトル】8月実績.xlsx
+
+# Puppeteer設定
+HEADLESS=false
+BROWSER_TIMEOUT=30000
+PAGE_TIMEOUT=60000
+# ブラウザパスは指定不要（Puppeteerが自動的に見つけます）
+# BROWSER_EXECUTABLE_PATH=
+
+# リトライ設定
+MAX_RETRIES=3
+RETRY_DELAY=2000
+
+# Google Sheets API設定
+GOOGLE_SERVICE_ACCOUNT_KEY_PATH=./credentials.json
+GOOGLE_SPREADSHEET_ID_NIGHT=your_night_spreadsheet_id
+GOOGLE_SPREADSHEET_ID_NORMAL=your_normal_spreadsheet_id
+GOOGLE_SHEET_NAME=Sheet1
+
+# OpenAI API設定（オプション：AI機能を使用する場合）
+# OPENAI_API_KEY=your_openai_api_key
+# OPENAI_MODEL=gpt-4o-mini
+
+# 設定検証をスキップ（テスト用：ログイン情報が未設定でもExcel読み込みテストが可能）
+# SKIP_CONFIG_VALIDATION=true
+```
+
+#### ステップ5: Google Sheets APIの設定
+
+1. **Google Cloud Consoleでサービスアカウントを作成**
+   - [Google Cloud Console](https://console.cloud.google.com/)にアクセス
+   - プロジェクトを作成または選択
+   - 「APIとサービス」→「認証情報」→「サービスアカウントを作成」
+   - サービスアカウント名を入力して作成
+
+2. **サービスアカウントキーをダウンロード**
+   - 作成したサービスアカウントを選択
+   - 「キー」タブ→「キーを追加」→「新しいキーを作成」
+   - JSON形式でダウンロード
+   - ダウンロードしたファイルを`credentials.json`としてプロジェクトルートに配置
+
+3. **Google Sheets APIを有効化**
+   - 「APIとサービス」→「ライブラリ」
+   - 「Google Sheets API」を検索して有効化
+
+4. **スプレッドシートへのアクセス権限を付与**
+   - 使用するGoogleスプレッドシートを開く
+   - 「共有」ボタンをクリック
+   - サービスアカウントのメールアドレス（`credentials.json`内の`client_email`）を追加
+   - 「編集者」権限を付与
+
+#### ステップ6: 動作確認
+
+セットアップが完了したら、以下のコマンドで動作確認を行います：
+
+```bash
+npm run test:single
+```
+
+このコマンドは、入力Excelファイルの最初のデータ行のみを処理して動作確認を行います。
+
+**注意**: 
+- 初回実行時は、ログイン情報やGoogle Sheets APIの設定が正しく行われているか確認してください
+- エラーが発生した場合は、「🔧 トラブルシューティング」セクションを参照してください
+
+---
+
+### 詳細なセットアップ手順
+
+#### 1. 依存関係のインストール
 
 ```bash
 npm install
@@ -56,7 +185,7 @@ npm install
 
 **注意**: 権限エラーが発生する場合は、ターミナルで直接実行してください。
 
-### 2. 環境変数の設定
+#### 2. 環境変数の設定
 
 **重要**: `.env`ファイルを作成する必要があります。
 
@@ -68,7 +197,44 @@ cp .env.example .env
 
 その後、`.env`ファイルを編集して実際の値を設定してください。
 
-#### 方法2: 手動で作成
+#### 方法2: セットアップスクリプトを使用
+
+**macOS/Linuxの場合:**
+```bash
+chmod +x setup-env.sh
+./setup-env.sh
+```
+
+**Windowsの場合（3つの方法）:**
+
+**方法A: バッチファイルを使用（最も簡単・推奨）**
+1. エクスプローラーでプロジェクトフォルダを開く
+2. `setup-env.bat`をダブルクリックして実行
+3. 完了メッセージが表示されるまで待つ
+
+**方法B: PowerShellで直接実行**
+1. エクスプローラーでプロジェクトフォルダを開く
+2. アドレスバーに`powershell`と入力してEnterキーを押す（または、Shiftキーを押しながら右クリック → 「PowerShellウィンドウをここで開く」）
+3. 以下のコマンドを実行：
+   ```powershell
+   .\setup-env.ps1
+   ```
+
+**方法C: 実行ポリシーをバイパスして実行**
+```powershell
+powershell -ExecutionPolicy Bypass -File setup-env.ps1
+```
+
+**注意**: 
+- PowerShellの実行ポリシーでエラーが発生する場合は、以下のコマンドを実行してください：
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  ```
+- パスに日本語（「デスクトップ」など）が含まれている場合、方法A（バッチファイル）が最も確実です
+
+セットアップスクリプトは、Google Sheets APIの基本設定を自動的に`.env`ファイルに追加または更新します。
+
+#### 方法3: 手動で作成
 
 プロジェクトルートに`.env`ファイルを作成し、以下の内容を記述してください：
 
@@ -113,48 +279,7 @@ SKIP_CONFIG_VALIDATION=true
 
 ### 3. Google Sheets APIの設定
 
-1. **Google Cloud Consoleでサービスアカウントを作成**
-   - [Google Cloud Console](https://console.cloud.google.com/)にアクセス
-   - プロジェクトを作成または選択
-   - 「APIとサービス」→「認証情報」→「サービスアカウントを作成」
-   - サービスアカウント名を入力して作成
-
-2. **サービスアカウントキーをダウンロード**
-   - 作成したサービスアカウントを選択
-   - 「キー」タブ→「キーを追加」→「新しいキーを作成」
-   - JSON形式でダウンロード
-   - ダウンロードしたファイルを`credentials.json`としてプロジェクトルートに配置
-
-3. **Google Sheets APIを有効化**
-   - 「APIとサービス」→「ライブラリ」
-   - 「Google Sheets API」を検索して有効化
-
-4. **スプレッドシートへのアクセス権限を付与**
-   - 使用するGoogleスプレッドシートを開く
-   - 「共有」ボタンをクリック
-   - サービスアカウントのメールアドレス（`credentials.json`内の`client_email`）を追加
-   - 「編集者」権限を付与
-
-`.env`ファイルの編集例：
-
-```env
-BAITORU_LOGIN_URL=https://your-baitoru-url.com/login
-BAITORU_USERNAME=your_username
-BAITORU_PASSWORD=your_password
-
-INPUT_FILE=【バイトル】8月実績.xlsx
-
-HEADLESS=false
-BROWSER_TIMEOUT=30000
-PAGE_TIMEOUT=60000
-# ブラウザのパスを手動で指定する場合（macOSで起動エラーが発生する場合）
-# BROWSER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-
-GOOGLE_SERVICE_ACCOUNT_KEY_PATH=./credentials.json
-GOOGLE_SPREADSHEET_ID_NIGHT=your_night_spreadsheet_id
-GOOGLE_SPREADSHEET_ID_NORMAL=your_normal_spreadsheet_id
-GOOGLE_SHEET_NAME=Sheet1
-```
+詳細は「ステップ5: Google Sheets APIの設定」を参照してください。
 
 ### 4. セレクタの設定
 
@@ -350,13 +475,87 @@ Excelファイルの列マッピングを定義します。CSVファイルの列
 
 ## 🔧 トラブルシューティング
 
-### Puppeteerのブラウザ起動エラー（macOS）
+### PowerShellスクリプトが実行できない（Windows）
 
-**エラー**: `Failed to launch the browser process!`
+**エラー**: `.\setup-env.ps1 : このシステムではスクリプトの実行が無効になっているため...` または `cannot be loaded because running scripts is disabled`
+
+**原因**: PowerShellの実行ポリシーがスクリプトの実行を禁止している
+
+**対策1: 実行ポリシーを変更（推奨）**
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+その後、再度スクリプトを実行：
+```powershell
+.\setup-env.ps1
+```
+
+**対策2: 実行ポリシーをバイパスして実行**
+```powershell
+powershell -ExecutionPolicy Bypass -File setup-env.ps1
+```
+
+**対策3: 一時的に実行ポリシーを変更**
+```powershell
+powershell -ExecutionPolicy RemoteSigned -File setup-env.ps1
+```
+
+**エラー**: `パスが見つかりません` または `PathNotFound`
+
+**原因**: パスに日本語（例：「デスクトップ」）が含まれている場合、PowerShellが正しくパスを認識できないことがある
+
+**対策1: バッチファイルを使用（最も簡単）**
+1. エクスプローラーでプロジェクトフォルダを開く
+2. `setup-env.bat`をダブルクリック
+3. これで実行ポリシーやパスの問題を回避できます
+
+**対策2: エクスプローラーからPowerShellを開く**
+1. エクスプローラーでプロジェクトフォルダを開く
+2. アドレスバーに`powershell`と入力してEnterキーを押す
+   - または、Shiftキーを押しながらフォルダ内の空白部分を右クリック → 「PowerShellウィンドウをここで開く」
+3. 以下のコマンドを実行：
+   ```powershell
+   .\setup-env.ps1
+   ```
+
+**対策3: 完全パスを指定して実行**
+```powershell
+powershell -ExecutionPolicy Bypass -File "C:\Users\vagab\OneDrive\デスクトップ\work\Git\TrendInnovation_GetBaitoruPerformanceData-\setup-env.ps1"
+```
+
+**対策4: 短いパス名（8.3形式）を使用**
+```powershell
+# 短いパス名を取得
+powershell -Command "(Get-Item 'C:\Users\vagab\OneDrive\デスクトップ').FullName"
+# 取得した短いパス名を使用して実行
+```
+
+**エラー**: コンソール出力で日本語が文字化けする
+
+**原因**: PowerShellのコンソールエンコーディング設定の問題
+
+**対策**: これは表示の問題のみで、実際の処理には影響しません。`.env`ファイルは正しく作成・更新されています。確認方法：
+```powershell
+Get-Content .env | Select-String "GOOGLE_"
+```
+
+**その他の問題**
+
+- **スクリプトファイルが見つからない**: プロジェクトのルートディレクトリで実行しているか確認してください
+- **権限エラー**: PowerShellを「管理者として実行」する必要はありません。通常のユーザー権限で実行できます
+- **文字エンコーディングエラー**: スクリプトファイルがUTF-8 with BOMで保存されているか確認してください
+
+### Puppeteerのブラウザ起動エラー
+
+**エラー**: `Failed to launch the browser process!` または `spawn /Applications/Google Chrome.app/Contents/MacOS/Google Chrome ENOENT`
+
+**原因**: 
+- `.env`ファイルに異なるプラットフォーム（macOS/Windows/Linux）用のブラウザパスが設定されている
+- Windows環境でmacOS用のパス（`/Applications/...`）が設定されている場合、そのパスは存在しない
 
 **対策**:
 
-1. **ブラウザの再インストール**:
+1. **ブラウザの再インストール（推奨）**:
    ```bash
    npm run install-browser
    ```
@@ -364,13 +563,25 @@ Excelファイルの列マッピングを定義します。CSVファイルの列
    ```bash
    npx puppeteer browsers install chrome
    ```
+   これで、Puppeteerが自動的にブラウザを見つけます（`.env`ファイルの`BROWSER_EXECUTABLE_PATH`は不要）
 
-2. **macOSのセキュリティ設定を確認**:
-   - システム環境設定 > セキュリティとプライバシー
-   - Chrome/Chromiumの実行を許可
+2. **`.env`ファイルから`BROWSER_EXECUTABLE_PATH`を削除**:
+   - `.env`ファイルを開く
+   - `BROWSER_EXECUTABLE_PATH=...`の行を削除またはコメントアウト（`#`を先頭に追加）
+   - Puppeteerが自動的にブラウザを見つけます
 
-3. **手動でブラウザパスを指定**:
-   `.env`ファイルに以下を追加:
+3. **プラットフォームに応じたブラウザパスを設定**:
+   
+   **Windowsの場合**:
+   ```env
+   BROWSER_EXECUTABLE_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
+   ```
+   または
+   ```env
+   BROWSER_EXECUTABLE_PATH=C:\Program Files (x86)\Google\Chrome\Application\chrome.exe
+   ```
+   
+   **macOSの場合**:
    ```env
    BROWSER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome
    ```
@@ -378,12 +589,29 @@ Excelファイルの列マッピングを定義します。CSVファイルの列
    ```env
    BROWSER_EXECUTABLE_PATH=/Applications/Chromium.app/Contents/MacOS/Chromium
    ```
+   
+   **Linuxの場合**:
+   ```env
+   BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome
+   ```
+   または
+   ```env
+   BROWSER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+   ```
 
-4. **ヘッドレスモードを無効にして試す**:
+4. **macOSのセキュリティ設定を確認**（macOSのみ）:
+   - システム環境設定 > セキュリティとプライバシー
+   - Chrome/Chromiumの実行を許可
+
+5. **ヘッドレスモードを無効にして試す**:
    `.env`ファイルに以下を追加:
    ```env
    HEADLESS=false
    ```
+
+**注意**: 
+- システムは自動的にプラットフォームを検出し、異なるプラットフォームのパスが設定されている場合は無視します
+- ブラウザパスを設定しない場合、Puppeteerが自動的にブラウザを見つけます（推奨）
 
 ### 日付変換エラー
 

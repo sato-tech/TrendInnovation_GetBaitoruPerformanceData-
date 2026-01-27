@@ -1,34 +1,29 @@
-# Dependencies
+# 依存関係
 node_modules/
+package-lock.json
 
-# Build output
-dist/
-
-# Environment variables
+# 環境変数
 .env
-.env.local
 
-# Logs
+# ログファイル
 logs/
 *.log
 
-# Output files
-output/
+# OS固有ファイル
+.DS_Store
+Thumbs.db
 
-# Google credentials
-credentials.json
-token.json
-
-# IDE
+# エディタ設定
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
 
-# OS
-.DS_Store
-Thumbs.db
+# 一時ファイル
+temp/
+tmp/
+*.tmp
 
-# TypeScript
-*.tsbuildinfo
+# ダウンロードファイル（一時）
+downloads/
+DL_*.xlsx

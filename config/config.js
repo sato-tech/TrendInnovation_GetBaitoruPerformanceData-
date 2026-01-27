@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 
 // 環境変数の読み込み
 dotenv.config();
@@ -39,7 +39,42 @@ const config = {
     headless: process.env.HEADLESS === 'true',
     timeout: parseInt(process.env.BROWSER_TIMEOUT || '30000', 10),
     pageTimeout: parseInt(process.env.PAGE_TIMEOUT || '60000', 10),
-    executablePath: process.env.BROWSER_EXECUTABLE_PATH || null,
+    // ブラウザパス: プラットフォームを検出して、異なるプラットフォームのパスは無視
+    // パスが存在しない場合も自動的にPuppeteerに任せる
+    executablePath: (() => {
+      const envPath = process.env.BROWSER_EXECUTABLE_PATH;
+      if (!envPath) return null;
+      
+      // プラットフォームを検出
+      const platform = process.platform;
+      const isWindows = platform === 'win32';
+      const isMacOS = platform === 'darwin';
+      const isLinux = platform === 'linux';
+      
+      // macOS用のパス（/Applications/...）がWindows/Linuxで設定されている場合は無視
+      if (!isMacOS && envPath.startsWith('/Applications/')) {
+        console.warn(`⚠️  macOS用のブラウザパスが検出されましたが、現在のプラットフォームは${platform}です。`);
+        console.warn(`   ブラウザパスを無視し、Puppeteerが自動的にブラウザを見つけます。`);
+        return null;
+      }
+      
+      // Windows用のパス（C:\...）がmacOS/Linuxで設定されている場合は無視
+      if (!isWindows && /^[A-Za-z]:\\/.test(envPath)) {
+        console.warn(`⚠️  Windows用のブラウザパスが検出されましたが、現在のプラットフォームは${platform}です。`);
+        console.warn(`   ブラウザパスを無視し、Puppeteerが自動的にブラウザを見つけます。`);
+        return null;
+      }
+      
+      // パスが存在するか検証
+      if (!existsSync(envPath)) {
+        console.warn(`⚠️  指定されたブラウザパスが存在しません: ${envPath}`);
+        console.warn(`   ブラウザパスを無視し、Puppeteerが自動的にブラウザを見つけます。`);
+        console.warn(`   ヒント: .envファイルからBROWSER_EXECUTABLE_PATHを削除するか、正しいパスを設定してください。`);
+        return null;
+      }
+      
+      return envPath;
+    })(),
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',

@@ -55,6 +55,9 @@ class ScrapingService {
     if (config.puppeteer.executablePath) {
       launchOptions.executablePath = config.puppeteer.executablePath;
       console.log(`指定されたブラウザパスを使用: ${launchOptions.executablePath}`);
+    } else {
+      // ブラウザパスが指定されていない場合、Puppeteerが自動的にブラウザを見つける
+      console.log('ブラウザパスが指定されていません。Puppeteerが自動的にブラウザを見つけます。');
     }
 
     try {
@@ -64,22 +67,46 @@ class ScrapingService {
       console.log('✓ ブラウザを起動しました');
     } catch (error) {
       console.error('\n❌ ブラウザ起動エラー:', error.message);
-      console.error('\n📋 対策:');
-      console.error('1. Puppeteerのブラウザを再インストール:');
-      console.error('   npm run install-browser');
-      console.error('   または');
-      console.error('   npx puppeteer browsers install chrome');
-      console.error('\n2. macOSの場合、セキュリティ設定を確認してください:');
-      console.error('   - システム環境設定 > セキュリティとプライバシー');
-      console.error('   - Chrome/Chromiumの実行を許可');
-      console.error('\n3. 手動でChrome/Chromiumのパスを指定する場合:');
-      console.error('   .envファイルに以下を追加:');
-      console.error('   BROWSER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
-      console.error('   または');
-      console.error('   BROWSER_EXECUTABLE_PATH=/Applications/Chromium.app/Contents/MacOS/Chromium');
-      console.error('\n4. ヘッドレスモードを無効にして試す場合:');
-      console.error('   .envファイルに以下を追加:');
-      console.error('   HEADLESS=false');
+      
+      // ENOENTエラーの場合、パスが存在しないことを明確に示す
+      if (error.message.includes('ENOENT') && config.puppeteer.executablePath) {
+        console.error('\n⚠️  指定されたブラウザパスが存在しないか、アクセスできません:');
+        console.error(`   ${config.puppeteer.executablePath}`);
+        console.error('\n📋 対策:');
+        console.error('1. .envファイルからBROWSER_EXECUTABLE_PATHを削除（推奨）:');
+        console.error('   Puppeteerが自動的にブラウザを見つけます');
+        console.error('\n2. 正しいブラウザパスを設定する場合:');
+        if (process.platform === 'win32') {
+          console.error('   Windowsの場合、Chromeがインストールされているパスを確認:');
+          console.error('   - C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
+          console.error('   - C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
+          console.error('   - または、Chromeを起動して「設定 > Chromeについて」でインストール場所を確認');
+        } else if (process.platform === 'darwin') {
+          console.error('   macOSの場合:');
+          console.error('   BROWSER_EXECUTABLE_PATH=/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+        } else {
+          console.error('   Linuxの場合:');
+          console.error('   BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome');
+        }
+        console.error('\n3. Puppeteerのブラウザを再インストール:');
+        console.error('   npm run install-browser');
+        console.error('   または');
+        console.error('   npx puppeteer browsers install chrome');
+      } else {
+        console.error('\n📋 対策:');
+        console.error('1. Puppeteerのブラウザを再インストール:');
+        console.error('   npm run install-browser');
+        console.error('   または');
+        console.error('   npx puppeteer browsers install chrome');
+        if (process.platform === 'darwin') {
+          console.error('\n2. macOSの場合、セキュリティ設定を確認してください:');
+          console.error('   - システム環境設定 > セキュリティとプライバシー');
+          console.error('   - Chrome/Chromiumの実行を許可');
+        }
+        console.error('\n3. ヘッドレスモードを無効にして試す場合:');
+        console.error('   .envファイルに以下を追加:');
+        console.error('   HEADLESS=false');
+      }
       
       throw error;
     }
