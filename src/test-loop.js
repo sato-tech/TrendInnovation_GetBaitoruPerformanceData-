@@ -12,6 +12,7 @@ import GoogleSheetsService from './services/GoogleSheetsService.js';
 import AIService from './services/AIService.js';
 import config from '../config/config.js';
 import { excelDateToJSDate, formatDateForInput, calculateWeeks } from './utils/dateUtils.js';
+import FileSelector from './utils/fileSelector.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 
@@ -2242,6 +2243,17 @@ async function main() {
   const excelService = new ExcelService();
   const googleSheetsService = new GoogleSheetsService();
   const aiService = new AIService();
+  const fileSelector = new FileSelector();
+  
+  // 入力ファイルを選択
+  let selectedFilePath;
+  try {
+    selectedFilePath = await fileSelector.selectFile();
+    console.log(`✓ 選択されたファイル: ${selectedFilePath}\n`);
+  } catch (error) {
+    console.error(`❌ ファイル選択エラー: ${error.message}`);
+    process.exit(1);
+  }
   
   // Google Sheets APIを初期化（必須）
   try {
@@ -2258,9 +2270,9 @@ async function main() {
     console.log(`=== ${loopCount}件の企業データを処理します ===`);
     console.log(`${'='.repeat(60)}\n`);
 
-    // 入力ファイルを読み込み
+    // 入力ファイルを読み込み（選択されたファイルパスを使用）
     console.log('1. 入力ファイルを読み込み中...');
-    const inputWorkbook = await excelService.loadInputFile();
+    const inputWorkbook = await excelService.loadInputFile(selectedFilePath);
     const inputSheet = inputWorkbook.getWorksheet(1);
     console.log('✓ 入力ファイルを読み込みました\n');
 

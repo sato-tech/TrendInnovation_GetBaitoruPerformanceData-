@@ -12,11 +12,13 @@ import { excelDateToJSDate } from '../utils/dateUtils.js';
 class ExcelService {
   /**
    * 入力ファイル（【バイトル】○月実績.xlsx）を読み込む
+   * @param {string} [filePath] - 読み込むファイルのパス（指定しない場合はconfig.files.inputを使用）
    * @returns {Promise<ExcelJS.Workbook>}
    */
-  async loadInputFile() {
+  async loadInputFile(filePath = null) {
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(config.files.input);
+    const targetPath = filePath || config.files.input;
+    await workbook.xlsx.readFile(targetPath);
     return workbook;
   }
 
