@@ -12,6 +12,7 @@ import { excelDateToJSDate, formatDateForInput, calculateWeeks } from './utils/d
 import FileSelector from './utils/fileSelector.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { createWriteStream } from 'fs';
 
 /**
  * 都道府県名から先頭のラベル（勤務地、面接地など）を除去
@@ -79,9 +80,10 @@ function cleanJobCategoryName(jobCategory) {
  * 通常案件の給与金額を処理する
  * - 「月収・日給・時給」というテキストは切り離す
  * - 「、」で区切られた場合は、最初のテキストのみを抽出
- * - 「〇〇円」と記載されている場合：数字のみを抽出
- * - 「○○万円」や「○○万円〜〇〇万円」という表記の場合：そのまま文字列として格納
- * - 「月収○○万円」や「月収○○万円〜〇〇万円」の場合：「月収」と「○○万」や「○○万円〜〇〇万」を分離
+ * - 「円〜」とあったら、「円〜」を含めた以降の文字列をすべて取り除く
+ * - 「円」があったら、「円」以降の文字列をすべて取り除く
+ * - 「万」があったら数字に対して10000を掛け算する
+ * - 「,」があっても文字列ではなく数字扱いする（カンマを除去して数値として扱う）
  * - 給与形態（月収、日給、時給、月給）を確実に除去する
  * @param {string|number} amount - 給与金額（文字列または数値）
  * @param {string} type - 給与形態（時給、日給、月給、月収など）
@@ -106,23 +108,34 @@ function processSalaryAmountForNormalCase(amount, type) {
         salaryText = salaryText.split('、')[0].trim();
       }
       
-      // 「万円」が含まれている場合は、そのままテキストとして記入
-      if (salaryText.includes('万円')) {
-        processedAmount = salaryText.trim();
+      // 「円〜」または「円～」とあったら、「円〜」を含めた以降の文字列をすべて取り除く
+      if (salaryText.includes('円〜') || salaryText.includes('円～')) {
+        const yenTildeIndex = salaryText.indexOf('円〜') !== -1 
+          ? salaryText.indexOf('円〜') 
+          : salaryText.indexOf('円～');
+        salaryText = salaryText.substring(0, yenTildeIndex).trim();
       } else if (salaryText.includes('円')) {
-        // 「円」を含めて取り除いて数字だけにする
-        const amountMatch = salaryText.match(/([\d,]+)\s*円/);
-        if (amountMatch) {
-          processedAmount = parseInt(amountMatch[1].replace(/,/g, ''), 10);
+        // 「円」があったら、「円」以降の文字列をすべて取り除く
+        const yenIndex = salaryText.indexOf('円');
+        salaryText = salaryText.substring(0, yenIndex).trim();
+      }
+      
+      // 「万」が含まれているかチェック
+      const hasMan = salaryText.includes('万');
+      
+      // カンマを除去して数値部分を抽出
+      const numericValue = parseFloat(salaryText.replace(/[^\d.]/g, ''));
+      
+      if (!isNaN(numericValue)) {
+        // 「万」があったら数字に対して10000を掛け算する
+        if (hasMan) {
+          processedAmount = numericValue * 10000;
         } else {
-          // 「円」が含まれているが数値が取得できない場合は、数値部分のみを抽出
-          const numericValue = parseFloat(salaryText.replace(/[^\d.]/g, ''));
-          processedAmount = !isNaN(numericValue) ? numericValue : 0;
+          processedAmount = numericValue;
         }
       } else {
-        // 「円」が含まれていない場合は、数値のみを抽出
-        const numericValue = parseFloat(salaryText.replace(/[^\d.]/g, ''));
-        processedAmount = !isNaN(numericValue) ? numericValue : 0;
+        // 数値が取得できない場合は0
+        processedAmount = 0;
       }
     }
   }
@@ -174,7 +187,8 @@ async function processSingleCSVRecord(
   processFolderPath,
   csvRecords,
   overrideValues = {},
-  uniqueIdColumn = null
+  uniqueIdColumn = null,
+  recordFailure = null
 ) {
   const csvCols = config.excelColumns.downloadFile.csvColumns;
   
@@ -225,17 +239,23 @@ async function processSingleCSVRecord(
   await writeCell(columnConfig.telApplication, telApplication);
 
   // ⑨ 期間（週数）を計算して転記
-  const appStartDate = excelService.getCSVValue(csvRecord, csvCols.applicationStartDate);
-  const appEndDate = excelService.getCSVValue(csvRecord, csvCols.applicationEndDate);
-  
-  if (appStartDate && appEndDate) {
-    const startDateObj = excelDateToJSDate(appStartDate);
-    const endDateObj = excelDateToJSDate(appEndDate);
+  // overrideValuesに週数が指定されている場合はそれを使用（FALSE行の集約結果など）
+  if (overrideValues.period !== undefined) {
+    await writeCell(columnConfig.period, overrideValues.period);
+    console.log(`  期間（週数）を転記: ${overrideValues.period}週間（集約した日付から計算）`);
+  } else {
+    const appStartDate = excelService.getCSVValue(csvRecord, csvCols.applicationStartDate);
+    const appEndDate = excelService.getCSVValue(csvRecord, csvCols.applicationEndDate);
     
-    if (startDateObj && endDateObj) {
-      const weeks = calculateWeeks(startDateObj, endDateObj);
-      await writeCell(columnConfig.period, weeks);
-      console.log(`  期間（週数）を転記: ${weeks}週間`);
+    if (appStartDate && appEndDate) {
+      const startDateObj = excelDateToJSDate(appStartDate);
+      const endDateObj = excelDateToJSDate(appEndDate);
+      
+      if (startDateObj && endDateObj) {
+        const weeks = calculateWeeks(startDateObj, endDateObj);
+        await writeCell(columnConfig.period, weeks);
+        console.log(`  期間（週数）を転記: ${weeks}週間`);
+      }
     }
   }
 
@@ -245,6 +265,9 @@ async function processSingleCSVRecord(
 
   if (!jobNo) {
     console.log('  仕事Noが取得できませんでした。スキップします。');
+    if (recordFailure) {
+      recordFailure(companyId, companyName, '', '仕事Noが取得できませんでした');
+    }
     return;
   }
 
@@ -488,9 +511,10 @@ async function processSingleCSVRecord(
       // 「時給」「月給」「日給」という文字を除去
       salaryStr = salaryStr.replace(/時給|月給|日給/g, '').trim();
       
-      // 「円」という文字を除去
+      // 「円」以降の値をすべて切り取る
       if (salaryStr.includes('円')) {
-        salaryStr = salaryStr.replace(/円/g, '').trim();
+        const yenIndex = salaryStr.indexOf('円');
+        salaryStr = salaryStr.substring(0, yenIndex).trim();
       }
       
       // 「〜」「～」を除去
@@ -545,13 +569,39 @@ async function processSingleCSVRecord(
   }
 
   // ⑳ 申込開始日・終了日を転記
-  if (appStartDate && appEndDate) {
-    const startDateObj = excelDateToJSDate(appStartDate);
-    const endDateObj = excelDateToJSDate(appEndDate);
+  // overrideValuesに日付が指定されている場合はそれを使用（FALSE行の集約結果など）
+  let finalAppStartDate = overrideValues.applicationStartDate !== undefined 
+    ? overrideValues.applicationStartDate 
+    : appStartDate;
+  let finalAppEndDate = overrideValues.applicationEndDate !== undefined 
+    ? overrideValues.applicationEndDate 
+    : appEndDate;
+  
+  if (finalAppStartDate && finalAppEndDate) {
+    // overrideValuesから来た場合は既にフォーマット済みの文字列、そうでない場合はDateオブジェクトに変換
+    let startDateObj, endDateObj;
     
-    if (startDateObj && endDateObj) {
-      const formattedStartDate = formatDateForInput(startDateObj);
-      const formattedEndDate = formatDateForInput(endDateObj);
+    if (overrideValues.applicationStartDate !== undefined) {
+      // 既にフォーマット済みの文字列の場合
+      startDateObj = new Date(finalAppStartDate);
+    } else {
+      startDateObj = excelDateToJSDate(finalAppStartDate);
+    }
+    
+    if (overrideValues.applicationEndDate !== undefined) {
+      // 既にフォーマット済みの文字列の場合
+      endDateObj = new Date(finalAppEndDate);
+    } else {
+      endDateObj = excelDateToJSDate(finalAppEndDate);
+    }
+    
+    if (startDateObj && endDateObj && !isNaN(startDateObj.getTime()) && !isNaN(endDateObj.getTime())) {
+      const formattedStartDate = overrideValues.applicationStartDate !== undefined 
+        ? finalAppStartDate 
+        : formatDateForInput(startDateObj);
+      const formattedEndDate = overrideValues.applicationEndDate !== undefined 
+        ? finalAppEndDate 
+        : formatDateForInput(endDateObj);
       
       if (formattedStartDate && formattedEndDate) {
         await writeCell(columnConfig.applicationStartDate, formattedStartDate);
@@ -582,32 +632,6 @@ async function processSingleCSVRecord(
  * メイン処理
  */
 async function main() {
-  const scrapingService = new ScrapingService();
-  const excelService = new ExcelService();
-  const googleSheetsService = new GoogleSheetsService();
-  const aiService = new AIService();
-  const fileSelector = new FileSelector();
-  
-  // 入力ファイルを選択
-  let selectedFilePath;
-  try {
-    selectedFilePath = await fileSelector.selectFile();
-    console.log(`✓ 選択されたファイル: ${selectedFilePath}\n`);
-  } catch (error) {
-    console.error(`❌ ファイル選択エラー: ${error.message}`);
-    process.exit(1);
-  }
-  
-  // Google Sheets APIを初期化（必須）
-  try {
-    await googleSheetsService.initialize();
-    console.log('✓ Google Sheets APIを初期化しました');
-  } catch (error) {
-    console.error('❌ Google Sheets APIの初期化に失敗しました:', error.message);
-    console.error('スプレッドシートIDとサービスアカウントキーの設定を確認してください。');
-    process.exit(1);
-  }
-
   // 実行ごとの出力フォルダを作成
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5); // YYYY-MM-DDTHH-MM-SS形式
   const outputFolderName = `run_${timestamp}`;
@@ -617,12 +641,135 @@ async function main() {
   const downloadFolderName = `downloads_${timestamp}`;
   const downloadFolderPath = join(config.files.downloadDir, downloadFolderName);
 
-  try {
-    console.log('処理を開始します...');
-    
-    // ダウンロードフォルダを作成
+  // ログファイル出力用のストリームを初期化（後で作成）
+  let logStream = null;
+  let originalConsoleLog = null;
+  let originalConsoleError = null;
+  let originalConsoleWarn = null;
+
+  // 失敗ログを記録する配列
+  const failureLogs = [];
+
+  // 失敗ログを記録するコールバック関数
+  const recordFailure = (companyId, companyName, jobNo, reason) => {
+    failureLogs.push({
+      companyId: companyId || '',
+      companyName: companyName || '',
+      jobNo: jobNo || '',
+      reason: reason || '',
+      timestamp: new Date().toISOString()
+    });
+  };
+
+  // ログ出力用のラッパー関数を設定
+  const setupLogging = async () => {
+    // ダウンロードフォルダを作成（ログファイルを保存するため）
     await fs.mkdir(downloadFolderPath, { recursive: true });
-    console.log(`✓ ダウンロードフォルダを作成しました: ${downloadFolderPath}`);
+
+    // ログファイルパス
+    const logFilePath = join(downloadFolderPath, `execution_log_${timestamp}.txt`);
+    logStream = createWriteStream(logFilePath, { flags: 'a', encoding: 'utf-8' });
+
+    // コマンド情報を記録
+    const commandInfo = `\n${'='.repeat(80)}\n`;
+    const commandLine = `実行コマンド: ${process.argv.join(' ')}\n`;
+    const commandPath = `実行ファイル: ${process.argv[1]}\n`;
+    const startTime = `開始時刻: ${new Date().toLocaleString('ja-JP')}\n`;
+    const separator = `${'='.repeat(80)}\n\n`;
+    
+    logStream.write(commandInfo);
+    logStream.write(commandLine);
+    logStream.write(commandPath);
+    logStream.write(startTime);
+    logStream.write(separator);
+
+    // console.log, console.error, console.warnをラップ
+    originalConsoleLog = console.log;
+    originalConsoleError = console.error;
+    originalConsoleWarn = console.warn;
+
+    console.log = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      originalConsoleLog(...args);
+      if (logStream) {
+        logStream.write(`[LOG] ${message}\n`);
+      }
+    };
+
+    console.error = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      originalConsoleError(...args);
+      if (logStream) {
+        logStream.write(`[ERROR] ${message}\n`);
+      }
+    };
+
+    console.warn = (...args) => {
+      const message = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' ');
+      originalConsoleWarn(...args);
+      if (logStream) {
+        logStream.write(`[WARN] ${message}\n`);
+      }
+    };
+
+    console.log(`✓ ログファイルを開始しました: ${logFilePath}\n`);
+  };
+
+  // ログ出力をクリーンアップ
+  const cleanupLogging = async () => {
+    if (logStream) {
+      const endTime = `\n${'='.repeat(80)}\n終了時刻: ${new Date().toLocaleString('ja-JP')}\n${'='.repeat(80)}\n`;
+      logStream.write(endTime);
+      logStream.end();
+      logStream = null;
+    }
+
+    // 元のconsole関数を復元
+    if (originalConsoleLog) console.log = originalConsoleLog;
+    if (originalConsoleError) console.error = originalConsoleError;
+    if (originalConsoleWarn) console.warn = originalConsoleWarn;
+  };
+
+  const scrapingService = new ScrapingService();
+  const excelService = new ExcelService();
+  const googleSheetsService = new GoogleSheetsService();
+  const aiService = new AIService();
+  const fileSelector = new FileSelector();
+
+  try {
+    // ログ出力を開始
+    await setupLogging();
+  
+    // 入力ファイルを選択
+    let selectedFilePath;
+    try {
+      selectedFilePath = await fileSelector.selectFile();
+      console.log(`✓ 選択されたファイル: ${selectedFilePath}\n`);
+    } catch (error) {
+      console.error(`❌ ファイル選択エラー: ${error.message}`);
+      await cleanupLogging();
+      process.exit(1);
+    }
+    
+    // Google Sheets APIを初期化（必須）
+    try {
+      await googleSheetsService.initialize();
+      console.log('✓ Google Sheets APIを初期化しました');
+    } catch (error) {
+      console.error('❌ Google Sheets APIの初期化に失敗しました:', error.message);
+      console.error('スプレッドシートIDとサービスアカウントキーの設定を確認してください。');
+      await cleanupLogging();
+      process.exit(1);
+    }
+
+    try {
+      console.log('処理を開始します...');
 
     // ブラウザ起動
     await scrapingService.launchBrowser();
@@ -1119,8 +1266,15 @@ async function main() {
               row
             ) || '';
             
-            // この行のデータを処理（既存の処理ロジックを再利用）
+            // ユニークIDを算出してすぐに書き込む
             const currentUniqueIdColumn = isNight ? uniqueIdColumnNight : uniqueIdColumnNormal;
+            if (currentUniqueIdColumn) {
+              const uniqueIdValue = `${companyId}_${companyName}_${startDateStr}_${endDateStr}`;
+              await writeCell(currentUniqueIdColumn, uniqueIdValue);
+              console.log(`  ユニークIDを転記: ${uniqueIdValue} (列: ${currentUniqueIdColumn}, 行: ${trendRow})`);
+            }
+            
+            // この行のデータを処理（既存の処理ロジックを再利用）
             await processSingleCSVRecord(
               validRecord.record,
               companyId,
@@ -1142,7 +1296,8 @@ async function main() {
               processFolderPath,
               csvRecords,
               {},
-              currentUniqueIdColumn
+              currentUniqueIdColumn,
+              recordFailure
             );
             
             // 行番号を更新
@@ -1187,6 +1342,10 @@ async function main() {
             let totalWebApplication = 0;
             let totalTelApplication = 0;
             
+            // 申込開始日・終了日を集約するための変数
+            let earliestStartDate = null;
+            let latestEndDate = null;
+            
             for (const invalidRecord of invalidRecords) {
               const listPV = parseFloat(excelService.getCSVValue(invalidRecord.record, csvCols.listPV) || 0);
               const detailPV = parseFloat(excelService.getCSVValue(invalidRecord.record, csvCols.detailPV) || 0);
@@ -1197,9 +1356,52 @@ async function main() {
               totalDetailPV += detailPV;
               totalWebApplication += webApplication;
               totalTelApplication += telApplication;
+              
+              // 申込開始日を取得して一番早い日付を記録
+              const appStartDate = excelService.getCSVValue(invalidRecord.record, csvCols.applicationStartDate);
+              if (appStartDate) {
+                const startDateObj = excelDateToJSDate(appStartDate);
+                if (startDateObj) {
+                  if (!earliestStartDate || startDateObj < earliestStartDate) {
+                    earliestStartDate = startDateObj;
+                  }
+                }
+              }
+              
+              // 申込終了日を取得して一番遅い日付を記録
+              const appEndDate = excelService.getCSVValue(invalidRecord.record, csvCols.applicationEndDate);
+              if (appEndDate) {
+                const endDateObj = excelDateToJSDate(appEndDate);
+                if (endDateObj) {
+                  if (!latestEndDate || endDateObj > latestEndDate) {
+                    latestEndDate = endDateObj;
+                  }
+                }
+              }
             }
             
             console.log(`  合計値: 一覧PV数=${totalListPV}, 詳細PV数=${totalDetailPV}, WEB応募数=${totalWebApplication}, TEL応募数=${totalTelApplication}`);
+            
+            // 集約した日付をフォーマット
+            let aggregatedStartDateStr = startDateStr; // デフォルトは元の開始日
+            let aggregatedEndDateStr = endDateStr; // デフォルトは元の終了日
+            
+            if (earliestStartDate) {
+              aggregatedStartDateStr = formatDateForInput(earliestStartDate);
+              console.log(`  集約した申込開始日（一番早い日付）: ${aggregatedStartDateStr}`);
+            }
+            
+            if (latestEndDate) {
+              aggregatedEndDateStr = formatDateForInput(latestEndDate);
+              console.log(`  集約した申込終了日（一番遅い日付）: ${aggregatedEndDateStr}`);
+            }
+            
+            // 集約した日付から週数を計算
+            let aggregatedWeeks = null;
+            if (earliestStartDate && latestEndDate) {
+              aggregatedWeeks = calculateWeeks(earliestStartDate, latestEndDate);
+              console.log(`  集約した日付から週数を計算: ${aggregatedWeeks}週間`);
+            }
             
             // 企業名を取得
             const companyName = excelService.getCellValue(
@@ -1208,17 +1410,24 @@ async function main() {
               row
             ) || '';
             
+            // ユニークIDを算出してすぐに書き込む
+            const currentUniqueIdColumn = isNight ? uniqueIdColumnNight : uniqueIdColumnNormal;
+            if (currentUniqueIdColumn) {
+              const uniqueIdValue = `${companyId}_${companyName}_${startDateStr}_${endDateStr}`;
+              await writeCell(currentUniqueIdColumn, uniqueIdValue);
+              console.log(`  ユニークIDを転記: ${uniqueIdValue} (列: ${currentUniqueIdColumn}, 行: ${trendRow})`);
+            }
+            
             // 最初のFalse行のデータを使用（その他の値）
             const firstInvalidRecord = invalidRecords[0].record;
             
-            // 既存の処理ロジックを再利用して書き込み（PV数・応募数は合計値を使用）
-            const currentUniqueIdColumn = isNight ? uniqueIdColumnNight : uniqueIdColumnNormal;
+            // 既存の処理ロジックを再利用して書き込み（PV数・応募数は合計値を使用、日付は集約した値を使用）
             await processSingleCSVRecord(
               firstInvalidRecord,
               companyId,
               companyName,
-              startDateStr,
-              endDateStr,
+              aggregatedStartDateStr, // 集約した開始日を使用
+              aggregatedEndDateStr,   // 集約した終了日を使用
               site,
               isNight,
               columnConfig,
@@ -1233,8 +1442,17 @@ async function main() {
               normalJobCategories,
               processFolderPath,
               csvRecords,
-              { listPV: totalListPV, detailPV: totalDetailPV, webApplication: totalWebApplication, telApplication: totalTelApplication },
-              currentUniqueIdColumn
+              { 
+                listPV: totalListPV, 
+                detailPV: totalDetailPV, 
+                webApplication: totalWebApplication, 
+                telApplication: totalTelApplication,
+                applicationStartDate: earliestStartDate ? formatDateForInput(earliestStartDate) : null,
+                applicationEndDate: latestEndDate ? formatDateForInput(latestEndDate) : null,
+                period: aggregatedWeeks !== null ? aggregatedWeeks : undefined
+              },
+              currentUniqueIdColumn,
+              recordFailure
             );
             
             // 行番号を更新
@@ -1275,6 +1493,14 @@ async function main() {
             value
           );
         };
+
+        // ユニークIDを算出してすぐに書き込む
+        const currentUniqueIdColumn = isNight ? uniqueIdColumnNight : uniqueIdColumnNormal;
+        if (currentUniqueIdColumn) {
+          const uniqueIdValue = `${companyId}_${companyName}_${startDateStr}_${endDateStr}`;
+          await writeCell(currentUniqueIdColumn, uniqueIdValue);
+          console.log(`  ユニークIDを転記: ${uniqueIdValue} (列: ${currentUniqueIdColumn}, 行: ${trendRow})`);
+        }
 
         // ⑦ プラン（H列）を取得して転記
         let publishingPlan = '';
@@ -1404,6 +1630,7 @@ async function main() {
 
         if (!jobNo) {
           console.log('  仕事Noが取得できませんでした。スキップします。');
+          recordFailure(companyId, companyName, '', '仕事Noが取得できませんでした');
           row++;
           skippedCount++;
           continue;
@@ -1834,9 +2061,10 @@ async function main() {
             // 「時給」「月給」「日給」という文字を除去
             salaryStr = salaryStr.replace(/時給|月給|日給/g, '').trim();
             
-            // 「円」という文字を除去
+            // 「円」以降の値をすべて切り取る
             if (salaryStr.includes('円')) {
-              salaryStr = salaryStr.replace(/円/g, '').trim();
+              const yenIndex = salaryStr.indexOf('円');
+              salaryStr = salaryStr.substring(0, yenIndex).trim();
             }
             
             // 「〜」「～」を除去
@@ -1884,17 +2112,6 @@ async function main() {
           storeName
         );
 
-        // ユニークIDを転記（ナイト案件と通常案件の両方）
-        const currentUniqueIdColumn = isNight ? uniqueIdColumnNight : uniqueIdColumnNormal;
-        if (currentUniqueIdColumn) {
-          const uniqueIdValue = `${companyId}_${companyName}_${startDateStr}_${endDateStr}`;
-          await writeCell(
-            currentUniqueIdColumn,
-            uniqueIdValue
-          );
-          console.log(`  ユニークIDを転記: ${uniqueIdValue} (列: ${currentUniqueIdColumn})`);
-        }
-
         // ⑳ 申込開始日・終了日を転記
         if (startDateObj && endDateObj) {
           // YYYY/MM/DD形式にフォーマット
@@ -1933,7 +2150,23 @@ async function main() {
         // 次の行へ
         row++;
       } catch (error) {
-        console.error(`  行 ${row} の処理でエラーが発生しました:`, error.message);
+        const companyId = excelService.getCellValue(
+          inputSheet,
+          config.excelColumns.inputSheet.companyId,
+          row
+        ) || '';
+        const companyName = excelService.getCellValue(
+          inputSheet,
+          config.excelColumns.inputSheet.companyName,
+          row
+        ) || '';
+        const errorMessage = error.message || String(error);
+        
+        console.error(`  行 ${row} の処理でエラーが発生しました:`, errorMessage);
+        
+        // 失敗ログを記録
+        recordFailure(companyId, companyName, '', errorMessage);
+        
         row++;
         skippedCount++;
         // エラーが発生しても処理を続行
@@ -1944,13 +2177,62 @@ async function main() {
     console.log('\n✓ すべてのデータをスプレッドシートに書き込みました');
     console.log(`\n処理完了: 処理済み ${processedCount}件、スキップ ${skippedCount}件`);
     console.log('\n全ての処理が完了しました！');
+
+    // 失敗ログをテキストファイルに出力
+    if (failureLogs.length > 0) {
+      const failureLogPath = join(downloadFolderPath, `failure_log_${timestamp}.txt`);
+      let logContent = '='.repeat(80) + '\n';
+      logContent += '取得失敗ログ\n';
+      logContent += `実行コマンド: ${process.argv.join(' ')}\n`;
+      logContent += `実行ファイル: ${process.argv[1]}\n`;
+      logContent += `実行日時: ${new Date().toLocaleString('ja-JP')}\n`;
+      logContent += `総失敗数: ${failureLogs.length}件\n`;
+      logContent += '='.repeat(80) + '\n\n';
+
+      failureLogs.forEach((log, index) => {
+        logContent += `【失敗 ${index + 1}】\n`;
+        logContent += `企業ID: ${log.companyId}\n`;
+        logContent += `企業名: ${log.companyName}\n`;
+        logContent += `仕事No: ${log.jobNo || '(取得できず)'}\n`;
+        logContent += `失敗理由: ${log.reason}\n`;
+        logContent += `発生時刻: ${new Date(log.timestamp).toLocaleString('ja-JP')}\n`;
+        logContent += '-'.repeat(80) + '\n\n';
+      });
+
+      try {
+        await fs.writeFile(failureLogPath, logContent, 'utf-8');
+        console.log(`✓ 失敗ログを保存しました: ${failureLogPath}\n`);
+      } catch (writeError) {
+        console.error(`❌ 失敗ログの保存エラー: ${writeError.message}`);
+      }
+    } else {
+      console.log('✓ 失敗はありませんでした。\n');
+    }
   } catch (error) {
     console.error('エラーが発生しました:', error);
+    
+    // エラーも失敗ログに記録
+    if (recordFailure) {
+      recordFailure('', '', '', `致命的なエラー: ${error.message || String(error)}`);
+    }
+    
     throw error;
   } finally {
     // ブラウザを閉じる
-    await scrapingService.closeBrowser();
-    console.log('ブラウザを閉じました');
+    try {
+      await scrapingService.closeBrowser();
+      console.log('ブラウザを閉じました');
+    } catch (closeError) {
+      console.warn(`ブラウザのクローズでエラー: ${closeError.message}`);
+    }
+    
+    // ログ出力をクリーンアップ
+    await cleanupLogging();
+    }
+  } catch (outerError) {
+    console.error('外側のエラーが発生しました:', outerError);
+    await cleanupLogging();
+    throw outerError;
   }
 }
 

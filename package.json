@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "test:single": "node src/test-single-row.js",
     "test:loop": "node src/test-loop.js",
+    "test:table": "node src/test-table.js",
     "test:company": "node src/test-by-company-id.js",
     "test:excel": "node src/test-excel-only.js",
     "debug:selectors": "node src/debug-selectors.js",

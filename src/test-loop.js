@@ -20,10 +20,13 @@ import { join } from 'path';
  * 通常案件の給与金額を処理する
  * - 「月収・日給・時給」というテキストは切り離す
  * - 「、」で区切られた場合は、最初のテキストのみを抽出
- * - 「〇〇円」と記載されている場合：数字のみを抽出
- * - 「○○万円」や「○○万円〜〇〇万円」という表記の場合：そのまま文字列として格納
+ * - 「円〜」とあったら、「円〜」を含めた以降の文字列をすべて取り除く
+ * - 「円」があったら、「円」以降の文字列をすべて取り除く
+ * - 「万」があったら数字に対して10000を掛け算する
+ * - 「,」があっても文字列ではなく数字扱いする（カンマを除去して数値として扱う）
+ * - 給与形態（月収、日給、時給、月給）を確実に除去する
  * @param {string|number} amount - 給与金額（文字列または数値）
- * @param {string} type - 給与形態（時給、日給、月給など）
+ * @param {string} type - 給与形態（時給、日給、月給、月収など）
  * @returns {string|number} 処理後の給与金額
  */
 function processSalaryAmountForNormalCase(amount, type) {
@@ -45,23 +48,34 @@ function processSalaryAmountForNormalCase(amount, type) {
     salaryText = salaryText.split('、')[0].trim();
   }
   
-  // 「万円」が含まれている場合は、そのままテキストとして記入
-  if (salaryText.includes('万円')) {
-    return salaryText.trim();
+  // 「円〜」または「円～」とあったら、「円〜」を含めた以降の文字列をすべて取り除く
+  if (salaryText.includes('円〜') || salaryText.includes('円～')) {
+    const yenTildeIndex = salaryText.indexOf('円〜') !== -1 
+      ? salaryText.indexOf('円〜') 
+      : salaryText.indexOf('円～');
+    salaryText = salaryText.substring(0, yenTildeIndex).trim();
   } else if (salaryText.includes('円')) {
-    // 「円」を含めて取り除いて数字だけにする
-    const amountMatch = salaryText.match(/([\d,]+)\s*円/);
-    if (amountMatch) {
-      return parseInt(amountMatch[1].replace(/,/g, ''), 10);
+    // 「円」があったら、「円」以降の文字列をすべて取り除く
+    const yenIndex = salaryText.indexOf('円');
+    salaryText = salaryText.substring(0, yenIndex).trim();
+  }
+  
+  // 「万」が含まれているかチェック
+  const hasMan = salaryText.includes('万');
+  
+  // カンマを除去して数値部分を抽出
+  const numericValue = parseFloat(salaryText.replace(/[^\d.]/g, ''));
+  
+  if (!isNaN(numericValue)) {
+    // 「万」があったら数字に対して10000を掛け算する
+    if (hasMan) {
+      return numericValue * 10000;
     } else {
-      // 「円」が含まれているが数値が取得できない場合は、数値部分のみを抽出
-      const numericValue = parseFloat(salaryText.replace(/[^\d.]/g, ''));
-      return !isNaN(numericValue) ? numericValue : 0;
+      return numericValue;
     }
   } else {
-    // 「円」が含まれていない場合は、数値のみを抽出
-    const numericValue = parseFloat(salaryText.replace(/[^\d.]/g, ''));
-    return !isNaN(numericValue) ? numericValue : 0;
+    // 数値が取得できない場合は0
+    return 0;
   }
 }
 
@@ -176,6 +190,13 @@ async function processSingleCSVRecordForTestLoop(
       );
     };
     
+    // ユニークIDを算出してすぐに書き込む
+    if (uniqueIdColumn) {
+      const uniqueIdValue = `${companyId}_${companyName}_${startDateStr}_${endDateStr}`;
+      await writeCell(uniqueIdColumn, uniqueIdValue);
+      console.log(`  ユニークIDを転記: ${uniqueIdValue} (列: ${uniqueIdColumn}, 行: ${trendRow})`);
+    }
+    
     const csvCols = config.excelColumns.downloadFile.csvColumns;
     
     // ⑦ プランを取得して転記
@@ -218,17 +239,25 @@ async function processSingleCSVRecordForTestLoop(
     await writeCell(columnConfig.webApplication, webApplication);
     await writeCell(columnConfig.telApplication, telApplication);
 
-    // ⑨ 期間（週数）を計算して転記
+    // 申込開始日・終了日を取得（期間計算と日付転記の両方で使用）
     const appStartDate = excelService.getCSVValue(csvRecord, csvCols.applicationStartDate);
     const appEndDate = excelService.getCSVValue(csvRecord, csvCols.applicationEndDate);
     
+    // 日付オブジェクトを変換（期間計算と日付転記の両方で使用）
     let startDateObj = null;
     let endDateObj = null;
     
     if (appStartDate && appEndDate) {
       startDateObj = excelDateToJSDate(appStartDate);
       endDateObj = excelDateToJSDate(appEndDate);
-      
+    }
+    
+    // ⑨ 期間（週数）を計算して転記
+    // overrideValuesに週数が指定されている場合はそれを使用（FALSE行の集約結果など）
+    if (overrideValues.period !== undefined) {
+      await writeCell(columnConfig.period, overrideValues.period);
+      console.log(`  期間（週数）を転記: ${overrideValues.period}週間（集約した日付から計算）`);
+    } else {
       if (startDateObj && endDateObj) {
         const weeks = calculateWeeks(startDateObj, endDateObj);
         await writeCell(columnConfig.period, weeks);
@@ -583,9 +612,10 @@ async function processSingleCSVRecordForTestLoop(
         // 「時給」「月給」「日給」という文字を除去
         salaryStr = salaryStr.replace(/時給|月給|日給/g, '').trim();
         
-        // 「円」という文字を除去
+        // 「円」以降の値をすべて切り取る
         if (salaryStr.includes('円')) {
-          salaryStr = salaryStr.replace(/円/g, '').trim();
+          const yenIndex = salaryStr.indexOf('円');
+          salaryStr = salaryStr.substring(0, yenIndex).trim();
         }
         
         // 「〜」「～」を除去
@@ -633,10 +663,39 @@ async function processSingleCSVRecordForTestLoop(
     }
 
     // ⑳ 申込開始日・終了日を転記
-    if (appStartDate && appEndDate) {
-      if (startDateObj && endDateObj) {
-        const formattedStartDate = formatDateForInput(startDateObj);
-        const formattedEndDate = formatDateForInput(endDateObj);
+    // overrideValuesに日付が指定されている場合はそれを使用（FALSE行の集約結果など）
+    let finalAppStartDate = overrideValues.applicationStartDate !== undefined 
+      ? overrideValues.applicationStartDate 
+      : appStartDate;
+    let finalAppEndDate = overrideValues.applicationEndDate !== undefined 
+      ? overrideValues.applicationEndDate 
+      : appEndDate;
+    
+    if (finalAppStartDate && finalAppEndDate) {
+      // overrideValuesから来た場合は既にフォーマット済みの文字列、そうでない場合はDateオブジェクトに変換
+      let startDateObj, endDateObj;
+      
+      if (overrideValues.applicationStartDate !== undefined) {
+        // 既にフォーマット済みの文字列の場合
+        startDateObj = new Date(finalAppStartDate);
+      } else {
+        startDateObj = excelDateToJSDate(finalAppStartDate);
+      }
+      
+      if (overrideValues.applicationEndDate !== undefined) {
+        // 既にフォーマット済みの文字列の場合
+        endDateObj = new Date(finalAppEndDate);
+      } else {
+        endDateObj = excelDateToJSDate(finalAppEndDate);
+      }
+      
+      if (startDateObj && endDateObj && !isNaN(startDateObj.getTime()) && !isNaN(endDateObj.getTime())) {
+        const formattedStartDate = overrideValues.applicationStartDate !== undefined 
+          ? finalAppStartDate 
+          : formatDateForInput(startDateObj);
+        const formattedEndDate = overrideValues.applicationEndDate !== undefined 
+          ? finalAppEndDate 
+          : formatDateForInput(endDateObj);
         
         if (formattedStartDate && formattedEndDate) {
           await writeCell(columnConfig.applicationStartDate, formattedStartDate);
@@ -656,13 +715,6 @@ async function processSingleCSVRecordForTestLoop(
       } else {
         console.warn(`  ⚠️  サイト情報がないため、媒体列は空のままです。`);
       }
-    }
-
-    // ユニークIDを転記（ナイト案件と通常案件の両方）
-    if (uniqueIdColumn) {
-      const uniqueIdValue = `${companyId}_${companyName}_${startDateStr}_${endDateStr}`;
-      await writeCell(uniqueIdColumn, uniqueIdValue);
-      console.log(`  ユニークIDを転記: ${uniqueIdValue} (列: ${uniqueIdColumn})`);
     }
 
     // プレビューページを閉じる
@@ -1247,6 +1299,10 @@ export async function testSingleCompany(companyData, loopIndex, totalLoops, scra
         let totalWebApplication = 0;
         let totalTelApplication = 0;
         
+        // 申込開始日・終了日を集約するための変数
+        let earliestStartDate = null;
+        let latestEndDate = null;
+        
         for (const invalidRecord of invalidRecords) {
           const listPV = parseFloat(excelService.getCSVValue(invalidRecord.record, csvCols.listPV) || 0);
           const detailPV = parseFloat(excelService.getCSVValue(invalidRecord.record, csvCols.detailPV) || 0);
@@ -1257,9 +1313,52 @@ export async function testSingleCompany(companyData, loopIndex, totalLoops, scra
           totalDetailPV += detailPV;
           totalWebApplication += webApplication;
           totalTelApplication += telApplication;
+          
+          // 申込開始日を取得して一番早い日付を記録
+          const appStartDate = excelService.getCSVValue(invalidRecord.record, csvCols.applicationStartDate);
+          if (appStartDate) {
+            const startDateObj = excelDateToJSDate(appStartDate);
+            if (startDateObj) {
+              if (!earliestStartDate || startDateObj < earliestStartDate) {
+                earliestStartDate = startDateObj;
+              }
+            }
+          }
+          
+          // 申込終了日を取得して一番遅い日付を記録
+          const appEndDate = excelService.getCSVValue(invalidRecord.record, csvCols.applicationEndDate);
+          if (appEndDate) {
+            const endDateObj = excelDateToJSDate(appEndDate);
+            if (endDateObj) {
+              if (!latestEndDate || endDateObj > latestEndDate) {
+                latestEndDate = endDateObj;
+              }
+            }
+          }
         }
         
         console.log(`  合計値: 一覧PV数=${totalListPV}, 詳細PV数=${totalDetailPV}, WEB応募数=${totalWebApplication}, TEL応募数=${totalTelApplication}`);
+        
+        // 集約した日付をフォーマット
+        let aggregatedStartDateStr = startDateStr; // デフォルトは元の開始日
+        let aggregatedEndDateStr = endDateStr; // デフォルトは元の終了日
+        
+        if (earliestStartDate) {
+          aggregatedStartDateStr = formatDateForInput(earliestStartDate);
+          console.log(`  集約した申込開始日（一番早い日付）: ${aggregatedStartDateStr}`);
+        }
+        
+        if (latestEndDate) {
+          aggregatedEndDateStr = formatDateForInput(latestEndDate);
+          console.log(`  集約した申込終了日（一番遅い日付）: ${aggregatedEndDateStr}`);
+        }
+        
+        // 集約した日付から週数を計算
+        let aggregatedWeeks = null;
+        if (earliestStartDate && latestEndDate) {
+          aggregatedWeeks = calculateWeeks(earliestStartDate, latestEndDate);
+          console.log(`  集約した日付から週数を計算: ${aggregatedWeeks}週間`);
+        }
         
         // 最初のFalse行のデータを使用（その他の値）
         const firstInvalidRecord = invalidRecords[0].record;
@@ -1283,13 +1382,13 @@ export async function testSingleCompany(companyData, loopIndex, totalLoops, scra
             ) || '';
           }
           
-          // 既存の処理ロジックを再利用して書き込み（PV数・応募数は合計値を使用）
+          // 既存の処理ロジックを再利用して書き込み（PV数・応募数は合計値を使用、日付は集約した値を使用）
           const success = await processSingleCSVRecordForTestLoop(
             firstInvalidRecord,
             companyId,
             companyName,
-            startDateStr,
-            endDateStr,
+            aggregatedStartDateStr, // 集約した開始日を使用
+            aggregatedEndDateStr,   // 集約した終了日を使用
             isNight,
             scrapingService,
             excelService,
@@ -1300,7 +1399,15 @@ export async function testSingleCompany(companyData, loopIndex, totalLoops, scra
             processFolderPath,
             csvRecords,
             spreadsheetId,
-            { listPV: totalListPV, detailPV: totalDetailPV, webApplication: totalWebApplication, telApplication: totalTelApplication },
+            { 
+              listPV: totalListPV, 
+              detailPV: totalDetailPV, 
+              webApplication: totalWebApplication, 
+              telApplication: totalTelApplication,
+              applicationStartDate: earliestStartDate ? formatDateForInput(earliestStartDate) : null,
+              applicationEndDate: latestEndDate ? formatDateForInput(latestEndDate) : null,
+              period: aggregatedWeeks !== null ? aggregatedWeeks : undefined
+            },
             uniqueIdColumn,
             site
           );
@@ -2057,9 +2164,10 @@ export async function testSingleCompany(companyData, loopIndex, totalLoops, scra
         // 「時給」「月給」「日給」という文字を除去
         salaryStr = salaryStr.replace(/時給|月給|日給/g, '').trim();
         
-        // 「円」という文字を除去
+        // 「円」以降の値をすべて切り取る
         if (salaryStr.includes('円')) {
-          salaryStr = salaryStr.replace(/円/g, '').trim();
+          const yenIndex = salaryStr.indexOf('円');
+          salaryStr = salaryStr.substring(0, yenIndex).trim();
         }
         
         // 「〜」「～」を除去

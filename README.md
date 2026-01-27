@@ -33,15 +33,27 @@
 │   │   ├── GoogleSheetsService.js  # Google Sheets操作処理
 │   │   └── AIService.js            # AI連携処理
 │   ├── utils/             # ユーティリティ関数
-│   │   └── dateUtils.js   # 日付処理
+│   │   ├── dateUtils.js   # 日付処理
+│   │   └── fileSelector.js # ファイル選択ダイアログ（OS別対応）
 │   ├── index.js           # メインエントリーポイント
 │   ├── convert-excel-to-json.js    # Excel→JSON変換ツール
 │   ├── debug-selectors.js          # セレクタデバッグツール
 │   ├── debug-selectors-by-url.js   # URL別セレクタデバッグツール
-│   └── test-*.js          # テストファイル
-├── downloads/             # ダウンロードファイル保存先
+│   ├── test-single-row.js          # 1行のみの動作確認テスト
+│   ├── test-loop.js                # ループ処理の動作確認テスト
+│   ├── test-by-company-id.js       # 企業ID指定のテスト
+│   ├── test-excel-only.js          # Excel読み込みのみのテスト
+│   ├── test-excel-read.js          # Excel読み込みテスト
+│   └── test-table.js               # テーブル読み込みテスト
+├── downloads/             # ダウンロードファイル保存先（実行ごとにタイムスタンプ付きフォルダを作成）
 ├── credentials.json       # Googleサービスアカウントキー（要作成）
 ├── .env                   # 環境変数（要作成）
+├── setup-env.sh           # 環境変数セットアップスクリプト（macOS/Linux用）
+├── setup-env.ps1          # 環境変数セットアップスクリプト（Windows用）
+├── test-dev.bat            # 開発モードテスト（Windows用）
+├── test-loop.bat           # ループテスト（Windows用）
+├── test-single.bat         # 単一行テスト（Windows用）
+├── test-google-sheets.js   # Google Sheets API接続テスト
 ├── package.json
 └── README.md
 ```
@@ -352,13 +364,44 @@ npm start
 npm run dev
 ```
 
-### 1行のみの動作確認
+### テストコマンド
+
+#### 1行のみの動作確認
 
 ```bash
 npm run test:single
 ```
 
 このコマンドは【バイトル】8月実績.xlsxの2行目（最初のデータ行）のみを処理して動作確認を行います。
+
+#### ループ処理の動作確認
+
+```bash
+npm run test:loop <回数>
+```
+
+指定した回数分の企業データを処理して動作確認を行います。
+
+例：
+```bash
+npm run test:loop 15
+```
+
+#### その他のテストコマンド
+
+```bash
+# テーブル読み込みテスト
+npm run test:table
+
+# 企業ID指定のテスト
+npm run test:company
+
+# Excel読み込みのみのテスト
+npm run test:excel
+
+# Google Sheets API接続テスト
+npm run test:google-sheets
+```
 
 ### セレクターのデバッグ
 
@@ -373,6 +416,14 @@ npm run debug:selectors
 - ページのHTMLとスクリーンショットを保存します（`debug-login-page.html`、`debug-login-page.png`）
 - 入力フィールド、ボタンなどの候補セレクターを表示します
 - 30秒間ブラウザを開いたままにして、手動で確認できます
+
+#### URL別セレクターデバッグ
+
+```bash
+npm run debug:url
+```
+
+特定のURLのセレクターをデバッグする場合に使用します。
 
 **注意**: 初回実行時はPuppeteerのブラウザをインストールする必要があります：
 
@@ -649,18 +700,29 @@ Get-Content .env | Select-String "GOOGLE_"
 ✅ ファイル名衝突回避
 ✅ バリデーション（同日チェック）
 ✅ 複数レコードの合計処理（期間内の全レコードを合計）
+  - FALSE行（日付不一致）の集約処理
+  - 一覧PV数、詳細PV数、WEB応募数、TEL応募数の合計
+  - 申込開始日（一番早い日付）と申込終了日（一番遅い日付）の集約
+  - 集約した日付から週数を自動計算
 ✅ プレビューページからの詳細情報抽出
   - 勤務地（都道府県・市区町村・最寄り駅）
   - 職種（大・中・小）
-  - 給与形態と金額
+  - 給与形態と金額（通常案件・ナイト案件で処理方法が異なる）
   - 店名（応募受付先名）
 ✅ Google Sheets API連携による直接データ書き込み
   - ナイト案件と通常案件で別々のスプレッドシートに自動振り分け
   - 重複チェック機能（ユニークIDによる）
   - 空白行への自動追記
+  - ユニークIDの即時格納（算出後すぐに書き込み）
 ✅ OpenAI API連携によるドロップダウン選択肢の自動マッチング
   - 地方の自動判定
   - 職種カテゴリの自動判定（コサイン類似度による）
+✅ ファイル選択ダイアログ（OS別対応）
+  - Windows: PowerShellを使用したファイル選択
+  - macOS: AppleScriptを使用したファイル選択
+  - Linux: 対応予定
+✅ Puppeteerの新しいHeadlessモード対応
+  - `headless: "new"`を自動的に使用（警告を解消）
 
 ## 📄 ライセンス
 

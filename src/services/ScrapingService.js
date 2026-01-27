@@ -27,8 +27,10 @@ class ScrapingService {
    */
   async launchBrowser() {
     // 基本起動オプション
+    // headless: trueの場合は"new"に変換（Puppeteerの新しいHeadlessモードを使用）
+    const headlessMode = config.puppeteer.headless === true ? "new" : config.puppeteer.headless;
     const launchOptions = {
-      headless: config.puppeteer.headless,
+      headless: headlessMode,
       args: [
         ...config.puppeteer.args,
         '--disable-blink-features=AutomationControlled',

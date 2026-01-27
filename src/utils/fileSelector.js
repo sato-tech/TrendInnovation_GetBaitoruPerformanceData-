@@ -83,13 +83,102 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
   }
 
   /**
-   * macOS/Linuxでファイル選択ダイアログを表示する（フォールバック）
+   * macOSでファイル選択ダイアログを表示する
+   * @returns {Promise<string>} 選択されたファイルのパス
+   */
+  async selectFileMacOS() {
+    // AppleScriptを使用してファイル選択ダイアログを表示
+    // ダイアログが確実に閉じるように、シンプルなAppleScriptを使用
+    const appleScript = `set theFile to choose file with prompt "Excelファイルを選択してください" of type {"xlsx", "xls", "public.spreadsheet"} default location (path to desktop)
+POSIX path of theFile`;
+
+    const tempScriptPath = join(tmpdir(), `file-dialog-${Date.now()}.scpt`);
+    
+    try {
+      // 一時ファイルにAppleScriptを書き込む
+      writeFileSync(tempScriptPath, appleScript, 'utf8');
+
+      // osascriptコマンドでAppleScriptを実行
+      // 実行後、確実にプロセスが終了するようにする
+      const { stdout, stderr } = await execAsync(
+        `osascript "${tempScriptPath}" && exit 0`,
+        { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024, timeout: 300000 }
+      );
+
+      // 一時ファイルを削除
+      try {
+        unlinkSync(tempScriptPath);
+      } catch (unlinkError) {
+        // 削除に失敗しても続行
+        console.warn(`一時ファイルの削除に失敗しました: ${unlinkError.message}`);
+      }
+
+      if (stderr && stderr.trim()) {
+        // ユーザーがキャンセルした場合など
+        if (stderr.includes('User cancelled') || stderr.includes('cancel') || stderr.includes('128')) {
+          throw new Error('ファイルが選択されませんでした');
+        }
+        console.warn(`警告: ${stderr}`);
+      }
+
+      const filePath = stdout.trim();
+      
+      if (!filePath) {
+        throw new Error('ファイルが選択されませんでした');
+      }
+
+      if (existsSync(filePath)) {
+        return filePath;
+      } else {
+        throw new Error(`ファイルが見つかりません: ${filePath}`);
+      }
+    } catch (error) {
+      // エラー時も一時ファイルを削除
+      try {
+        if (existsSync(tempScriptPath)) {
+          unlinkSync(tempScriptPath);
+        }
+      } catch (unlinkError) {
+        // 削除に失敗しても続行
+      }
+
+      if (error.message.includes('ファイルが選択されませんでした') || 
+          error.message.includes('ファイルが見つかりません')) {
+        throw error;
+      }
+      // osascriptのエラー（ユーザーがキャンセルした場合など）
+      if (error.code === 1 || error.message.includes('exit code 1') || error.message.includes('User cancelled')) {
+        throw new Error('ファイルが選択されませんでした');
+      }
+      throw new Error(`ファイル選択ダイアログの表示に失敗しました: ${error.message}`);
+    }
+  }
+
+  /**
+   * Linuxでファイル選択ダイアログを表示する（フォールバック）
+   * @returns {Promise<string>} 選択されたファイルのパス
+   */
+  async selectFileLinux() {
+    // Linuxでは、zenityやkdialogなどのツールを使用
+    // ここでは簡易的な実装として、エラーメッセージを表示
+    throw new Error('この機能はWindows/macOS環境でのみ利用可能です。ファイルパスを直接入力してください。');
+  }
+
+  /**
+   * macOS/Linuxでファイル選択ダイアログを表示する
    * @returns {Promise<string>} 選択されたファイルのパス
    */
   async selectFileUnix() {
-    // macOS/Linuxでは、zenityやkdialogなどのツールを使用
-    // ここでは簡易的な実装として、エラーメッセージを表示
-    throw new Error('この機能はWindows環境でのみ利用可能です。ファイルパスを直接入力してください。');
+    const osPlatform = platform();
+    
+    if (osPlatform === 'darwin') {
+      // macOS
+      console.log('\n=== ファイル選択ダイアログを開いています... ===\n');
+      return await this.selectFileMacOS();
+    } else {
+      // Linux
+      return await this.selectFileLinux();
+    }
   }
 
   /**
