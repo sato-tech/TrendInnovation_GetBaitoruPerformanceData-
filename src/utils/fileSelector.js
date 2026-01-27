@@ -16,14 +16,23 @@ class FileSelector {
    * @returns {Promise<string>} 選択されたファイルのパス
    */
   async selectFileWindows() {
-    const powershellScript = `Add-Type -AssemblyName System.Windows.Forms
+    const powershellScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+
+Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.OpenFileDialog
 $dialog.Filter = "Excel files (*.xlsx;*.xls)|*.xlsx;*.xls|All files (*.*)|*.*"
 $dialog.Title = "Excelファイルを選択してください"
 $dialog.Multiselect = $false
 
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-    Write-Output $dialog.FileName
+    $filePath = $dialog.FileName
+    # ファイルパスをUTF-8で出力（BOMなし、Base64エンコードで確実に取得）
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($filePath)
+    $base64 = [Convert]::ToBase64String($bytes)
+    [Console]::WriteLine($base64)
 } else {
     Write-Error "ファイルが選択されませんでした"
     exit 1
@@ -32,13 +41,19 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
     const tempScriptPath = join(tmpdir(), `file-dialog-${Date.now()}.ps1`);
     
     try {
-      // 一時ファイルにPowerShellスクリプトを書き込む
-      writeFileSync(tempScriptPath, powershellScript, 'utf8');
+      // 一時ファイルにPowerShellスクリプトを書き込む（UTF-8 BOM付き）
+      writeFileSync(tempScriptPath, '\ufeff' + powershellScript, 'utf8');
 
-      // PowerShellスクリプトを実行
+      // PowerShellスクリプトを実行（UTF-8エンコーディングを明示的に指定）
+      // パスにスペースや特殊文字が含まれる可能性があるため、適切にエスケープ
+      const escapedPath = tempScriptPath.replace(/"/g, '""');
       const { stdout, stderr } = await execAsync(
-        `powershell -ExecutionPolicy Bypass -File "${tempScriptPath}"`,
-        { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 }
+        `powershell -ExecutionPolicy Bypass -NoProfile -Command "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [System.Text.Encoding]::UTF8; & \"${escapedPath}\""`,
+        { 
+          encoding: 'utf8', 
+          maxBuffer: 10 * 1024 * 1024,
+          shell: true
+        }
       );
 
       // 一時ファイルを削除
@@ -49,16 +64,44 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         console.warn(`一時ファイルの削除に失敗しました: ${unlinkError.message}`);
       }
 
-      if (stderr && (stderr.includes('Write-Error') || stderr.includes('ファイルが選択されませんでした'))) {
+      // stderrにエラーメッセージがある場合
+      if (stderr && stderr.trim() && (stderr.includes('Write-Error') || stderr.includes('ファイルが選択されませんでした'))) {
         throw new Error('ファイルが選択されませんでした');
       }
 
-      const filePath = stdout.trim();
+      // stdoutからBase64エンコードされたファイルパスを取得
+      let base64Path = stdout.trim();
       
-      if (!filePath) {
+      // 複数行ある場合は最後の行を取得（エラーメッセージが混入する可能性があるため）
+      if (base64Path.includes('\n')) {
+        const lines = base64Path.split('\n').filter(line => {
+          const trimmed = line.trim();
+          // Base64文字列のパターン（英数字、+、/、=のみ）をチェック
+          return trimmed && /^[A-Za-z0-9+/=]+$/.test(trimmed) && !trimmed.includes('Write-Error');
+        });
+        if (lines.length > 0) {
+          base64Path = lines[lines.length - 1].trim();
+        }
+      }
+      
+      if (!base64Path || !/^[A-Za-z0-9+/=]+$/.test(base64Path)) {
         throw new Error('ファイルが選択されませんでした');
       }
 
+      // Base64からデコードしてファイルパスを取得
+      let filePath;
+      try {
+        const buffer = Buffer.from(base64Path, 'base64');
+        filePath = buffer.toString('utf8');
+      } catch (decodeError) {
+        throw new Error(`ファイルパスのデコードに失敗しました: ${decodeError.message}`);
+      }
+
+      if (!filePath || filePath.trim() === '') {
+        throw new Error('ファイルが選択されませんでした');
+      }
+
+      // ファイルパスの存在確認
       if (existsSync(filePath)) {
         return filePath;
       } else {
@@ -78,6 +121,10 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
           error.message.includes('ファイルが見つかりません')) {
         throw error;
       }
+      
+      // より詳細なエラーメッセージを提供
+      const errorDetails = error.stderr || error.stdout || error.message;
+      console.error(`ファイル選択エラーの詳細: ${errorDetails}`);
       throw new Error(`ファイル選択ダイアログの表示に失敗しました: ${error.message}`);
     }
   }

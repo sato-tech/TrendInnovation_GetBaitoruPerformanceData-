@@ -344,6 +344,21 @@ class GoogleSheetsService {
       const sheetId = sheet.properties.sheetId;
       
       // 列を追加
+      // columnIndexは0ベースで、新しい列を挿入する位置を指定
+      // シートのグリッドサイズを取得して確認
+      const gridProperties = sheet.properties.gridProperties;
+      const currentColumnCount = gridProperties.columnCount || 0;
+      
+      // insertDimensionのstartIndexは、新しい列を挿入する位置を指定（0ベース）
+      // inheritFromBeforeがfalseの場合、startIndexはグリッドサイズ未満である必要がある
+      // 最後の列の後に追加する場合は、最後の列のインデックス（currentColumnCount - 1）を指定する
+      // これにより、最後の列の後に新しい列が追加される
+      let startIndex = columnIndex;
+      if (startIndex >= currentColumnCount) {
+        // グリッドサイズを超える場合は、最後の列のインデックスを使用
+        startIndex = Math.max(0, currentColumnCount - 1);
+      }
+      
       await this.sheets.spreadsheets.batchUpdate({
         spreadsheetId: spreadsheetId,
         resource: {
@@ -353,8 +368,8 @@ class GoogleSheetsService {
                 range: {
                   sheetId: sheetId,
                   dimension: 'COLUMNS',
-                  startIndex: columnIndex,
-                  endIndex: columnIndex + 1,
+                  startIndex: startIndex + 1, // 最後の列の後に追加する場合は、最後の列のインデックス+1
+                  endIndex: startIndex + 2,
                 },
                 inheritFromBefore: false,
               },
@@ -364,12 +379,14 @@ class GoogleSheetsService {
       });
 
       // ヘッダー行に値を設定
+      // 列を追加した後、新しい列のインデックスはstartIndexになる
+      const newColumnIndex = startIndex + 1; // 1ベースに変換
       if (headerValue) {
-        const newColumnName = this.numberToColumn(columnIndex + 1);
+        const newColumnName = this.numberToColumn(newColumnIndex);
         await this.setCellValue(spreadsheetId, sheetName, newColumnName, 1, headerValue);
       }
 
-      const newColumnName = this.numberToColumn(columnIndex + 1);
+      const newColumnName = this.numberToColumn(newColumnIndex);
       console.log(`✓ 列を追加しました: ${newColumnName}`);
       return newColumnName;
     } catch (error) {
@@ -457,7 +474,11 @@ class GoogleSheetsService {
       // 存在しない場合は最後の列の後に追加
       const lastColumn = await this.getLastColumn(spreadsheetId, sheetName);
       const lastColumnNumber = this.columnToNumber(lastColumn);
-      const newColumnName = await this.addColumn(spreadsheetId, sheetName, lastColumnNumber, headerValue);
+      // columnToNumberは1ベース（A=1）を返すが、addColumnのinsertDimensionは0ベースのインデックスを期待する
+      // 最後の列の後に追加する場合は、lastColumnNumber（1ベース）を0ベースに変換する必要がある
+      // ただし、insertDimensionのstartIndexは新しい列を挿入する位置なので、最後の列のインデックスを指定する
+      const columnIndexForInsert = lastColumnNumber - 1; // 1ベースから0ベースに変換
+      const newColumnName = await this.addColumn(spreadsheetId, sheetName, columnIndexForInsert, headerValue);
       
       return newColumnName;
     } catch (error) {

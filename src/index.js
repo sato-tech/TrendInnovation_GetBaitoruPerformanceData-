@@ -192,6 +192,10 @@ async function processSingleCSVRecord(
 ) {
   const csvCols = config.excelColumns.downloadFile.csvColumns;
   
+  // 申込開始日・終了日を取得（後で使用するため、関数の最初で取得）
+  let appStartDate = excelService.getCSVValue(csvRecord, csvCols.applicationStartDate);
+  let appEndDate = excelService.getCSVValue(csvRecord, csvCols.applicationEndDate);
+  
   // ⑦ プラン（H列）を取得して転記
   let publishingPlan = excelService.getCSVValue(csvRecord, '掲載プラン') || 
                      excelService.getCSVValue(csvRecord, 'プラン') || '';
@@ -244,9 +248,6 @@ async function processSingleCSVRecord(
     await writeCell(columnConfig.period, overrideValues.period);
     console.log(`  期間（週数）を転記: ${overrideValues.period}週間（集約した日付から計算）`);
   } else {
-    const appStartDate = excelService.getCSVValue(csvRecord, csvCols.applicationStartDate);
-    const appEndDate = excelService.getCSVValue(csvRecord, csvCols.applicationEndDate);
-    
     if (appStartDate && appEndDate) {
       const startDateObj = excelDateToJSDate(appStartDate);
       const endDateObj = excelDateToJSDate(appEndDate);
@@ -821,32 +822,6 @@ async function main() {
       console.warn(`⚠️  通常案件リストの読み込みエラー: ${error.message}`);
     }
 
-    // 重複チェック用の列を追加（ナイト案件と通常案件の両方）
-    console.log('重複チェック用の列を追加中...');
-    let duplicateCheckColumnNight = null;
-    let duplicateCheckColumnNormal = null;
-    try {
-      duplicateCheckColumnNight = await googleSheetsService.ensureDuplicateCheckColumn(
-        config.googleSheets.spreadsheetIdNight,
-        config.googleSheets.sheetName,
-        '重複チェック'
-      );
-      console.log(`✓ ナイト案件の重複チェック列: ${duplicateCheckColumnNight}`);
-    } catch (error) {
-      console.warn(`⚠️  ナイト案件の重複チェック列の追加エラー: ${error.message}`);
-    }
-    
-    try {
-      duplicateCheckColumnNormal = await googleSheetsService.ensureDuplicateCheckColumn(
-        config.googleSheets.spreadsheetIdNormal,
-        config.googleSheets.sheetName,
-        '重複チェック'
-      );
-      console.log(`✓ 通常案件の重複チェック列: ${duplicateCheckColumnNormal}`);
-    } catch (error) {
-      console.warn(`⚠️  通常案件の重複チェック列の追加エラー: ${error.message}`);
-    }
-
     // ユニークID列を検索（既に手動で追加済みのため、追加処理は行わない）
     console.log('ユニークID列を検索中...');
     let uniqueIdColumnNight = null;
@@ -1021,9 +996,33 @@ async function main() {
 
         console.log(`  掲載期間: ${startDateStr} ～ ${endDateStr}`);
 
-        // ③ 企業IDで検索
-        await scrapingService.searchByCompanyId(String(companyId));
-        console.log('  企業IDで検索しました');
+        // ③ 企業IDで検索（エラー時はTOPページに戻る）
+        try {
+          await scrapingService.searchByCompanyId(String(companyId));
+          console.log('  企業IDで検索しました');
+        } catch (searchError) {
+          console.error(`  ❌ 企業ID検索エラー: ${searchError.message}`);
+          console.log('  TOPページに戻ってリトライします...');
+          
+          // TOPページに戻って入力フィールドをリセット
+          try {
+            await scrapingService.goToTopAndReset();
+            console.log('  ✓ TOPページに戻りました');
+            
+            // リトライ
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            await scrapingService.searchByCompanyId(String(companyId));
+            console.log('  ✓ 企業IDで検索しました（リトライ成功）');
+          } catch (retryError) {
+            console.error(`  ❌ リトライも失敗: ${retryError.message}`);
+            if (recordFailure) {
+              recordFailure(companyId, companyName || '', '', `企業ID検索エラー: ${searchError.message}`);
+            }
+            row++;
+            skippedCount++;
+            continue;
+          }
+        }
 
         // ④ 選択ボタンをクリック
         await scrapingService.clickSelectButton();
@@ -1236,8 +1235,14 @@ async function main() {
             const validRecord = validRecords[i];
             console.log(`\n  [True行 ${i + 1}/${validRecords.length}] 処理を開始します`);
             
-            // 現在の行番号を取得（ナイト案件と通常案件で別々に管理）
-            const trendRow = isNight ? nextTrendRowNight : nextTrendRowNormal;
+            // 各レコード処理前に空白行を再検索（同じ行に上書きされないように）
+            const spreadsheetId = isNight ? config.googleSheets.spreadsheetIdNight : config.googleSheets.spreadsheetIdNormal;
+            const trendRow = await googleSheetsService.findFirstEmptyRow(
+              spreadsheetId,
+              config.googleSheets.sheetName,
+              'A',
+              2
+            );
             
             // デバッグ: 書き込み先の確認
             console.log(`  [DEBUG] 書き込み先: ${isNight ? 'ナイト案件' : '通常案件'}, 行番号: ${trendRow}`);
@@ -1248,7 +1253,7 @@ async function main() {
               : config.excelColumns.trendDatabase;
 
             // スプレッドシートへの書き込み用ヘルパー関数
-            const spreadsheetId = isNight ? config.googleSheets.spreadsheetIdNight : config.googleSheets.spreadsheetIdNormal;
+            // spreadsheetIdは既に上で宣言済み
             const writeCell = async (column, value) => {
               await googleSheetsService.setCellValue(
                 spreadsheetId,
@@ -1312,8 +1317,14 @@ async function main() {
           if (invalidRecords.length > 0) {
             console.log(`\n  [False行] ${invalidRecords.length}件の合計値を算出して書き込みます`);
             
-            // 現在の行番号を取得
-            const trendRow = isNight ? nextTrendRowNight : nextTrendRowNormal;
+            // False行処理前に空白行を再検索（同じ行に上書きされないように）
+            const spreadsheetId = isNight ? config.googleSheets.spreadsheetIdNight : config.googleSheets.spreadsheetIdNormal;
+            const trendRow = await googleSheetsService.findFirstEmptyRow(
+              spreadsheetId,
+              config.googleSheets.sheetName,
+              'A',
+              2
+            );
             
             // デバッグ: 書き込み先の確認
             console.log(`  [DEBUG] 書き込み先: ${isNight ? 'ナイト案件' : '通常案件'}, 行番号: ${trendRow}`);
@@ -1324,7 +1335,6 @@ async function main() {
               : config.excelColumns.trendDatabase;
 
             // スプレッドシートへの書き込み用ヘルパー関数
-            const spreadsheetId = isNight ? config.googleSheets.spreadsheetIdNight : config.googleSheets.spreadsheetIdNormal;
             const writeCell = async (column, value) => {
               await googleSheetsService.setCellValue(
                 spreadsheetId,
@@ -1455,12 +1465,7 @@ async function main() {
               recordFailure
             );
             
-            // 行番号を更新
-            if (isNight) {
-              nextTrendRowNight++;
-            } else {
-              nextTrendRowNormal++;
-            }
+            // 行番号のインクリメントは不要：各レコード処理前に空白行を再検索するため
           }
           
           // 複数行処理が完了したので、次の企業に進む
@@ -1471,8 +1476,14 @@ async function main() {
 
         // 単一行またはExcelファイルの場合の既存処理
         // ⑦ プラン、PV数・応募数、期間を抽出して出力エクセルに転記
-        // 現在の行番号を取得（ナイト案件と通常案件で別々に管理）
-        const trendRow = isNight ? nextTrendRowNight : nextTrendRowNormal;
+        // 処理前に空白行を再検索（同じ行に上書きされないように）
+        const spreadsheetId = isNight ? config.googleSheets.spreadsheetIdNight : config.googleSheets.spreadsheetIdNormal;
+        const trendRow = await googleSheetsService.findFirstEmptyRow(
+          spreadsheetId,
+          config.googleSheets.sheetName,
+          'A',
+          2
+        );
         
         // デバッグ: 書き込み先の確認
         console.log(`  [DEBUG] 書き込み先: ${isNight ? 'ナイト案件' : '通常案件'}, 行番号: ${trendRow}`);
@@ -1483,7 +1494,6 @@ async function main() {
           : config.excelColumns.trendDatabase;
 
         // スプレッドシートへの書き込み用ヘルパー関数
-        const spreadsheetId = isNight ? config.googleSheets.spreadsheetIdNight : config.googleSheets.spreadsheetIdNormal;
         const writeCell = async (column, value) => {
           await googleSheetsService.setCellValue(
             spreadsheetId,
@@ -2147,7 +2157,7 @@ async function main() {
         console.log(`  ✓ スプレッドシートへのデータ書き込みが完了しました（行${trendRow}）`);
         console.log(`  企業ID: ${companyId} の処理が完了しました`);
 
-        // 次の行へ
+        // 次の行へ（行番号のインクリメントは不要：各レコード処理前に空白行を再検索するため）
         row++;
       } catch (error) {
         const companyId = excelService.getCellValue(
